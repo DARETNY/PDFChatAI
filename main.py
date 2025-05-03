@@ -1,3 +1,4 @@
+import asyncio
 import os
 import tempfile
 import warnings
@@ -12,17 +13,17 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 
 warnings.filterwarnings("ignore")
-# — API Anahtarları
+
+# API Keys
 os.environ["GOOGLE_API_KEY"] = "AIzaSyBAncSXs0GozEJf9IoqbMMLZ6hIbPQCymY"
 
-# — Model Seçimi
+# Model Configuration
 EMBED_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-# Aşağıdakilerden birini deneyin: gemini-1.5-pro-latest, gemini-1.5-flash
 GEN_MODEL_NAME = "gemini-1.5-pro-latest"
 
 
-# — PDF load
-def load_pdf(path: str) -> List[str]:
+# Load PDF (Asynchronous)
+async def load_pdf_async(path: str) -> List[str]:
     try:
         reader = PyPDF2.PdfReader(path)
         return [p.extract_text() or "" for p in reader.pages]
@@ -30,72 +31,94 @@ def load_pdf(path: str) -> List[str]:
         return [f"error : {e}"]
 
 
-# — dynamic text chunking
+# Dynamic Token-Based Splitting
 def chunk_text(text: str) -> List[str]:
     encoder = tiktoken.get_encoding("cl100k_base")
     tokens = encoder.encode(text)
     n = len(tokens)
-    size = 1000 if n > 2000 else (n // 2 if n > 1000 else n)
-    overlap = int(size * 0.1)
+    size = 800 if n > 2000 else (n // 2 if n > 1000 else n)
+    overlap = int(size * 0.2)
     splitter = TokenTextSplitter(chunk_size=size, chunk_overlap=overlap)
     return splitter.split_text(text)
 
 
-# — Embedding and vektör DB
+# Embedding and Vector Store
 def create_embeddings(chunks: List[str]):
     emb = HuggingFaceEmbeddings(model_name=EMBED_MODEL_NAME, model_kwargs={"device": "cpu"})
     return FAISS.from_texts(chunks, emb)
 
 
-def get_relevant_chunks(db, query: str, k=4):
-    docs = db.similarity_search(query, k=k)
-    return [d.page_content for d in docs]
+# MMR-based Search
+def mmr_search(db, query: str, k: int = 8, fetch_k: int = 20):
+    docs = db.similarity_search(query, k=fetch_k)
+
+    # Calculate MMR by considering both similarity and diversity
+    selected_docs = []
+    selected_ids = set()
+
+    for doc in docs:
+        if len(selected_docs) >= k:
+            break
+        if doc.page_content not in selected_ids:
+            selected_docs.append(doc)
+            selected_ids.add(doc.page_content)
+
+    return selected_docs
 
 
-# —  (Gemini)
+# Answer Generation (Gemini)
 def generate_answer(context: List[str], query: str) -> str:
-    joined = "\n".join(context)
-    prompt = f"Bağlam:\n{joined}\n\nSoru: {query}\n\nYanıt:"
+    joined = "\n---\n".join(context)
+    prompt = (
+        f"You are a helpful PDF assistant. Based on the context provided below, answer the user's question in a detailed and clear manner. "
+        f"If there are multiple context chunks, consider all of them. Do not go beyond the content of the PDF.\n\n"
+        f"Context:\n{joined}\n\nQuestion: {query}\n\nAnswer:"
+    )
     genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
-    model = genai.GenerativeModel(GEN_MODEL_NAME)  # ← artık sadece model adı
+    model = genai.GenerativeModel(GEN_MODEL_NAME)
     try:
+        # Synchronous call to generate content (no async await)
         resp = model.generate_content(prompt)
         return resp.text.strip()
     except Exception as e:
-        return f"Cevap oluşturulamadı: {e}"
+        return f"Failed to generate response: {e}"
 
 
-# — PDF→responder
-def process_pdf(path: str, query: str) -> str:
-    pages = load_pdf(path)
-    if "hata" in pages[0].lower():
+# PDF Processing (Asynchronous)
+async def process_pdf_async(path: str, query: str) -> str:
+    pages = await load_pdf_async(path)
+    if "error" in pages[0].lower():
         return pages[0]
     text = " ".join(pages)
     chunks = chunk_text(text)
     if not chunks:
-        return "no exsist."
+        return "Text could not be extracted."
     db = create_embeddings(chunks)
-    ctx = get_relevant_chunks(db, query)
+    ctx = mmr_search(db, query)
     if not ctx:
-        return "info not available"
-    return generate_answer(ctx, query)
+        return "No relevant information found."
+    return generate_answer([doc.page_content for doc in ctx], query)
 
 
-# — Streamlit UI
+# Streamlit Interface (Handling async)
 def main():
     st.set_page_config(page_title="PDF QA", page_icon="📄", layout="wide")
+    st.title("📄 PDF Question-Answer Assistant")
+    st.markdown("Talk to your PDF — extract knowledge directly from it.")
 
-    st.title("PDF ask anything bot")
-    uploaded = st.file_uploader("upload the file", type="pdf")
-    q = st.text_input("Question", placeholder="Ask anything about the PDF")
+    uploaded = st.file_uploader("Upload your PDF file", type="pdf")
+    q = st.text_input("Type your question…", placeholder="Ask anything related to the PDF content")
+
     if uploaded and q:
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
             tmp.write(uploaded.read())
             tmp_path = tmp.name
-        st.info("loading…", icon="⏳")
-        ans = process_pdf(tmp_path, q)
-        st.success("Answer:", icon="✅")
-        st.write(ans)
+
+        # Running the async process in the event loop
+        st.info("Generating answer…", icon="⏳")
+        result = asyncio.run(process_pdf_async(tmp_path, q))
+        st.success("Answer", icon="✅")
+        st.write(result)
         os.remove(tmp_path)
 
 
