@@ -21,16 +21,16 @@ EMBED_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 GEN_MODEL_NAME = "gemini-1.5-pro-latest"
 
 
-# — PDF Yükleme
+# — PDF load
 def load_pdf(path: str) -> List[str]:
     try:
         reader = PyPDF2.PdfReader(path)
         return [p.extract_text() or "" for p in reader.pages]
     except Exception as e:
-        return [f"PDF yüklenirken hata: {e}"]
+        return [f"error : {e}"]
 
 
-# — Dinamik token‑tabanlı chunking
+# — dynamic text chunking
 def chunk_text(text: str) -> List[str]:
     encoder = tiktoken.get_encoding("cl100k_base")
     tokens = encoder.encode(text)
@@ -41,7 +41,7 @@ def chunk_text(text: str) -> List[str]:
     return splitter.split_text(text)
 
 
-# — Embedding ve vektör DB
+# — Embedding and vektör DB
 def create_embeddings(chunks: List[str]):
     emb = HuggingFaceEmbeddings(model_name=EMBED_MODEL_NAME, model_kwargs={"device": "cpu"})
     return FAISS.from_texts(chunks, emb)
@@ -52,7 +52,7 @@ def get_relevant_chunks(db, query: str, k=4):
     return [d.page_content for d in docs]
 
 
-# — Cevap üretme (Gemini)
+# —  (Gemini)
 def generate_answer(context: List[str], query: str) -> str:
     joined = "\n".join(context)
     prompt = f"Bağlam:\n{joined}\n\nSoru: {query}\n\nYanıt:"
@@ -65,7 +65,7 @@ def generate_answer(context: List[str], query: str) -> str:
         return f"Cevap oluşturulamadı: {e}"
 
 
-# — PDF→Cevap
+# — PDF→responder
 def process_pdf(path: str, query: str) -> str:
     pages = load_pdf(path)
     if "hata" in pages[0].lower():
@@ -73,27 +73,28 @@ def process_pdf(path: str, query: str) -> str:
     text = " ".join(pages)
     chunks = chunk_text(text)
     if not chunks:
-        return "Metin çıkarılamadı."
+        return "no exsist."
     db = create_embeddings(chunks)
     ctx = get_relevant_chunks(db, query)
     if not ctx:
-        return "İlgili bilgi bulunamadı."
+        return "info not available"
     return generate_answer(ctx, query)
 
 
 # — Streamlit UI
 def main():
-    st.set_page_config(page_title="PDF QA", page_icon="📄")
-    st.title("PDF Soru–Cevap (Gemini)")
-    uploaded = st.file_uploader("PDF yükleyin", type="pdf")
-    q = st.text_input("Sorunuz")
+    st.set_page_config(page_title="PDF QA", page_icon="📄", layout="wide")
+
+    st.title("PDF ask anything bot")
+    uploaded = st.file_uploader("upload the file", type="pdf")
+    q = st.text_input("Question", placeholder="Ask anything about the PDF")
     if uploaded and q:
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
             tmp.write(uploaded.read())
             tmp_path = tmp.name
-        st.info("İşleniyor…")
+        st.info("loading…", icon="⏳")
         ans = process_pdf(tmp_path, q)
-        st.success("Cevap:")
+        st.success("Answer:", icon="✅")
         st.write(ans)
         os.remove(tmp_path)
 
