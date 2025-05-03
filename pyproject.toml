@@ -1,0 +1,17 @@
+[project]
+name = "pdfchatai"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.9"
+dependencies = [
+    "pypdf2",
+    "google-generativeai",
+    "streamlit",
+    "tiktoken",
+    "langchain",
+    "langchain-community",
+    "sentence-transformers",
+    "faiss-cpu", # veya GPU kullanıyorsanız faiss-gpu
+    "pycryptodome>=3.22.0",
+    "cryptography>=44.0.3",
+]
