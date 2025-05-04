@@ -1,4 +1,3 @@
-import asyncio
 import os
 import tempfile
 import warnings
@@ -8,22 +7,24 @@ import PyPDF2
 import google.generativeai as genai
 import streamlit as st
 import tiktoken
+from dotenv import load_dotenv
 from langchain.text_splitter import TokenTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 
 warnings.filterwarnings("ignore")
 
-# API Keys
-os.environ["GOOGLE_API_KEY"] = "AIzaSyBAncSXs0GozEJf9IoqbMMLZ6hIbPQCymY"
+# Load environment variables from .env file
+load_dotenv()
 
 # Model Configuration
 EMBED_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 GEN_MODEL_NAME = "gemini-1.5-pro-latest"
 
 
-# Load PDF (Asynchronous)
-async def load_pdf_async(path: str) -> List[str]:
+# Load PDF
+
+def load_pdf(path: str) -> List[str]:
     try:
         reader = PyPDF2.PdfReader(path)
         return [p.extract_text() or "" for p in reader.pages]
@@ -32,6 +33,7 @@ async def load_pdf_async(path: str) -> List[str]:
 
 
 # Dynamic Token-Based Splitting
+
 def chunk_text(text: str) -> List[str]:
     encoder = tiktoken.get_encoding("cl100k_base")
     tokens = encoder.encode(text)
@@ -43,30 +45,19 @@ def chunk_text(text: str) -> List[str]:
 
 
 # Embedding and Vector Store
+
 def create_embeddings(chunks: List[str]):
     emb = HuggingFaceEmbeddings(model_name=EMBED_MODEL_NAME, model_kwargs={"device": "cpu"})
     return FAISS.from_texts(chunks, emb)
 
 
-# MMR-based Search
-def mmr_search(db, query: str, k: int = 8, fetch_k: int = 20):
-    docs = db.similarity_search(query, k=k, fetch_k=fetch_k)
-
-    # Calculate MMR by considering both similarity and diversity
-    selected_docs = []
-    selected_ids = set()
-
-    for doc in docs:
-        if len(selected_docs) >= k:
-            break
-        if doc.page_content not in selected_ids:
-            selected_docs.append(doc)
-            selected_ids.add(doc.page_content)
-
-    return selected_docs
+def get_relevant_chunks(db, query: str, k=8):
+    docs = db.similarity_search(query, k=k)
+    return [d.page_content for d in docs]
 
 
 # Answer Generation (Gemini)
+
 def generate_answer(context: List[str], query: str) -> str:
     joined = "\n---\n".join(context)
     prompt = (
@@ -74,19 +65,19 @@ def generate_answer(context: List[str], query: str) -> str:
         f"If there are multiple context chunks, consider all of them. Do not go beyond the content of the PDF.\n\n"
         f"Context:\n{joined}\n\nQuestion: {query}\n\nAnswer:"
     )
-    genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
+    genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
     model = genai.GenerativeModel(GEN_MODEL_NAME)
     try:
-        # Synchronous call to generate content (no async await)
         resp = model.generate_content(prompt)
         return resp.text.strip()
     except Exception as e:
         return f"Failed to generate response: {e}"
 
 
-# PDF Processing (Asynchronous)
-async def process_pdf_async(path: str, query: str) -> str:
-    pages = await load_pdf_async(path)
+# PDF Processing
+
+def process_pdf(path: str, query: str) -> str:
+    pages = load_pdf(path)
     if "error" in pages[0].lower():
         return pages[0]
     text = " ".join(pages)
@@ -94,13 +85,14 @@ async def process_pdf_async(path: str, query: str) -> str:
     if not chunks:
         return "Text could not be extracted."
     db = create_embeddings(chunks)
-    ctx = mmr_search(db, query)
+    ctx = get_relevant_chunks(db, query)
     if not ctx:
         return "No relevant information found."
-    return generate_answer([doc.page_content for doc in ctx], query)
+    return generate_answer(ctx, query)
 
 
-# Streamlit Interface (Handling async)
+# Streamlit Interface
+
 def main():
     st.set_page_config(page_title="PDF QA", page_icon="📄", layout="wide")
     st.title("📄 PDF Question-Answer Assistant")
@@ -113,12 +105,10 @@ def main():
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
             tmp.write(uploaded.read())
             tmp_path = tmp.name
-
-        # Running the async process in the event loop
         st.info("Generating answer…", icon="⏳")
-        result = asyncio.run(process_pdf_async(tmp_path, q))
+        ans = process_pdf(tmp_path, q)
         st.success("Answer", icon="✅")
-        st.write(result)
+        st.write(ans)
         os.remove(tmp_path)
 
 
