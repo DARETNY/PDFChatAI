@@ -74,13 +74,7 @@ The application requires a Google Gemini API key.
 
 ### Locally
 
-Ensure your virtual environment is activated and the `.env` file is configured.
-
-Run the Streamlit application using the following command:
-```bash
-streamlit run main.py
-```
-The application will be accessible in your web browser, typically at `http://localhost:8501`.
+https://daretny-pdfchatai-main-bl4cws.streamlit.app/
 
 ### Using Docker
 
