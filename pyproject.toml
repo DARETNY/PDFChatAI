@@ -14,5 +14,4 @@ dependencies = [
     "faiss-cpu", # veya GPU kullanıyorsanız faiss-gpu
     "pycryptodome>=3.22.0",
     "cryptography>=44.0.3",
-    "pip>=25.1.1",
 ]

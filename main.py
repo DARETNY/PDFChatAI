@@ -50,7 +50,7 @@ def create_embeddings(chunks: List[str]):
 
 # MMR-based Search
 def mmr_search(db, query: str, k: int = 8, fetch_k: int = 20):
-    docs = db.similarity_search(query, k=fetch_k)
+    docs = db.similarity_search(query, k=k, fetch_k=fetch_k)
 
     # Calculate MMR by considering both similarity and diversity
     selected_docs = []
