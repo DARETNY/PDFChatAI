@@ -1,7 +1,7 @@
 # PDF Question-Answering Assistant
 
 This project implements a Streamlit web application that allows users to upload PDF documents and ask questions about their content. It leverages Google's Gemini Pro model via the `google-generativeai` library to understand the context from the PDF and generate relevant answers.
-
+![Adsız-2025-03-29-1744.png](media/Ads%C4%B1z-2025-03-29-1744.png)
 ## Features
 
 *   **PDF Upload:** Easily upload PDF files through the Streamlit interface.
